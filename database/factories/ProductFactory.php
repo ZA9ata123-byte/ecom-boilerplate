@@ -17,10 +17,10 @@ class ProductFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => $this->faker->sentence(3), // كيخترع سمية من 3 كلمات
-            'description' => $this->faker->paragraph(4), // كيخترع وصف من 4 سطور
-            'price' => $this->faker->randomFloat(2, 10, 1000), // كيخترع ثمن عشري بين 10 و 1000
-            'image_url' => $this->faker->imageUrl(), // كيجيب رابط ديال صورة وهمية
+            'name' => $this->faker->words(3, true),
+            'description' => $this->faker->paragraph(5), // الوصف الطويل (متوافق مع الجدول)
+            'price' => $this->faker->randomFloat(2, 10, 999),
+        
         ];
     }
 }

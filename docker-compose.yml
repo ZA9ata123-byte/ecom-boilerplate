@@ -9,7 +9,7 @@ services:
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         ports:
-            - '${APP_PORT:-80}:80'
+            - '8000:80' # <-- هذا هو الإصلاح الحاسم لمشكل الاتصال
             - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
         environment:
             WWWUSER: '${WWWUSER}'
@@ -72,3 +72,16 @@ volumes:
         driver: local
     sail-redis:
         driver: local
+    # --- هادو هما الإضافات المستقبلية لي زدتي، ممتاز! ---
+    sail-memcached:
+        driver: local
+    sail-mongodb:
+        driver: local
+    sail-elasticsearch:
+        driver: local
+    sail-mailhog:
+        driver: local
+    sail-ftp:
+        driver: local
+
+# --- هنا نزيد الخدمات المستقبلية لي زدتي، زوين! ---

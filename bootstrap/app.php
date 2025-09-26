@@ -12,7 +12,17 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // هنا قمنا بتسجيل الميدلوير الجديد ديالنا
+        // الحل النهائي والقاطع: كنسجلو الميدلوير ديالنا هو الأول
+        $middleware->prepend(\App\Http\Middleware\CorsMiddleware::class);
+
+        // الإعدادات الأخرى لي كانت ضرورية لـ Sanctum
+        $middleware->statefulApi();
+        $middleware->validateCsrfTokens(except: [
+            'http://localhost:3000/*',
+            'http://localhost:8000/*',
+        ]);
+
+        // هنا كيبقى الميدلوير لي كان عندك ديجا
         $middleware->alias([
             'is.admin' => \App\Http\Middleware\IsAdmin::class,
         ]);
