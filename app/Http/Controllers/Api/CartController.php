@@ -4,9 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CartItem;
-use App\Models\Product;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class CartController extends Controller
 {
@@ -54,10 +53,12 @@ class CartController extends Controller
 
         return response()->json($item);
     }
+
     public function destroy(CartItem $item): JsonResponse
     {
         // Add authorization check here later
         $item->delete();
+
         return response()->json(null, 204);
     }
 }

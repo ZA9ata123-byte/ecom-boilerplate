@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Api;
 
-use App\Models\CartItem;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,9 +52,9 @@ class CartTest extends TestCase
         $cart = $user->cart()->create();
         $cartItem = $cart->items()->create(['product_id' => $product->id, 'quantity' => 1]);
 
-        $this->putJson('/api/cart/items/' . $cartItem->id, ['quantity' => 5])
+        $this->putJson('/api/cart/items/'.$cartItem->id, ['quantity' => 5])
             ->assertStatus(200);
-            
+
         $this->assertDatabaseHas('cart_items', ['id' => $cartItem->id, 'quantity' => 5]);
     }
 
@@ -69,7 +68,7 @@ class CartTest extends TestCase
 
         $this->assertDatabaseHas('cart_items', ['id' => $cartItem->id]);
 
-        $this->deleteJson('/api/cart/items/' . $cartItem->id)
+        $this->deleteJson('/api/cart/items/'.$cartItem->id)
             ->assertStatus(204);
 
         $this->assertDatabaseMissing('cart_items', ['id' => $cartItem->id]);

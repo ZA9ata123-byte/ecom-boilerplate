@@ -33,9 +33,9 @@ class OrderTest extends TestCase
         // Assert a new order was created with the correct total price (250)
         $this->assertDatabaseHas('orders', [
             'user_id' => $user->id,
-            'total_price' => 250.00
+            'total_price' => 250.00,
         ]);
-        
+
         // Assert the order items were created
         $this->assertDatabaseCount('order_items', 2);
 

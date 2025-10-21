@@ -25,7 +25,7 @@ class ProductApiTest extends TestCase
     public function it_can_fetch_a_single_product(): void
     {
         $product = Product::factory()->create();
-        $response = $this->getJson('/api/products/' . $product->id);
+        $response = $this->getJson('/api/products/'.$product->id);
         $response->assertStatus(200);
         $response->assertJson(['id' => $product->id]);
     }
@@ -69,7 +69,7 @@ class ProductApiTest extends TestCase
         Sanctum::actingAs($admin);
         $product = Product::factory()->create();
         $updateData = ['name' => 'Updated Product Name'];
-        $response = $this->putJson('/api/products/' . $product->id, $updateData);
+        $response = $this->putJson('/api/products/'.$product->id, $updateData);
         $response->assertStatus(200);
         $this->assertDatabaseHas('products', ['id' => $product->id, 'name' => 'Updated Product Name']);
     }
@@ -81,7 +81,7 @@ class ProductApiTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         Sanctum::actingAs($admin);
         $product = Product::factory()->create();
-        $response = $this->deleteJson('/api/products/' . $product->id);
+        $response = $this->deleteJson('/api/products/'.$product->id);
         $response->assertStatus(204);
         $this->assertDatabaseMissing('products', ['id' => $product->id]);
     }

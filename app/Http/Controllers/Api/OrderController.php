@@ -1,8 +1,10 @@
 <?php
+
 namespace App\Http\Controllers\Api;
+
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
@@ -12,7 +14,7 @@ class OrderController extends Controller
         $user = $request->user();
         $cart = $user->cart()->with('items.product')->first();
 
-        if (!$cart || $cart->items->isEmpty()) {
+        if (! $cart || $cart->items->isEmpty()) {
             return response()->json(['message' => 'Your cart is empty.'], 400);
         }
 

@@ -12,21 +12,24 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // الحل النهائي والقاطع: كنسجلو الميدلوير ديالنا هو الأول
+        // خلي CORS أولاً
         $middleware->prepend(\App\Http\Middleware\CorsMiddleware::class);
 
-        // الإعدادات الأخرى لي كانت ضرورية لـ Sanctum
+        // Sanctum (SPA/stateful APIs)
         $middleware->statefulApi();
+
+        // CSRF: استثني الدومينات ديال الفرونت/الAPI (إلا كنت باغي)
         $middleware->validateCsrfTokens(except: [
             'http://localhost:3000/*',
             'http://localhost:8000/*',
         ]);
 
-        // هنا كيبقى الميدلوير لي كان عندك ديجا
+        // الألياس ديال الميدلوير ديال الأدمين
         $middleware->alias([
             'is.admin' => \App\Http\Middleware\IsAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
-    })->create();
+    })
+    ->create();
