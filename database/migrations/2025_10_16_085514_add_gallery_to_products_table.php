@@ -6,24 +6,21 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            $table->string('short_description')->after('name')->nullable(); // نضيف الوصف القصير
-            $table->string('image')->after('price')->nullable(); // نضيف الصورة
+            if (! Schema::hasColumn('products', 'gallery')) {
+                $table->json('gallery')->nullable()->after('image_url');
+            }
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            $table->dropColumn(['short_description', 'image']);
+            if (Schema::hasColumn('products', 'gallery')) {
+                $table->dropColumn('gallery');
+            }
         });
     }
 };

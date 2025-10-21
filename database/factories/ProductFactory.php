@@ -20,7 +20,7 @@ class ProductFactory extends Factory
             'name' => $this->faker->words(3, true),
             'description' => $this->faker->paragraph(5), // الوصف الطويل (متوافق مع الجدول)
             'price' => $this->faker->randomFloat(2, 10, 999),
-        
+
         ];
     }
 }
