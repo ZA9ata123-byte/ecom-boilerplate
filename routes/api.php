@@ -23,7 +23,6 @@ Route::post('/register', [AuthController::class, 'register'])->name('api.registe
 Route::post('/login', [AuthController::class, 'login'])->name('api.login');
 
 // --- Password Reset ---
-// هذا هو المسار الجديد لي زدنا، خاصو يكون عام
 Route::post('/forgot-password', [ForgotPasswordController::class, 'sendResetLinkEmail'])->name('api.forgot-password');
 
 // --- Product Viewing ---
@@ -31,8 +30,16 @@ Route::get('/products', [ProductController::class, 'index'])->name('api.products
 Route::get('/products/{product}', [ProductController::class, 'show'])->name('api.products.show');
 
 // --- Cart for Guests and Users ---
-// This endpoint is public to allow guests to add to their cart
 Route::post('/cart/items', [CartController::class, 'store'])->name('api.cart.store');
+
+// ✅ Health Check Endpoint (عام، خارج الميدلوير)
+Route::get('/ping', function () {
+    return response()->json([
+        'ok' => true,
+        'service' => 'laravel',
+        'time' => now()->toISOString(),
+    ]);
+})->name('api.ping');
 
 // ========================================================================
 // | Protected Routes (Require login/token)
@@ -51,7 +58,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // --- Order System ---
     Route::post('/orders', [OrderController::class, 'store'])->name('api.orders.store');
-    // We will add routes to view orders later
 
     // --- Product Management (Admins Only) ---
     Route::middleware('is.admin')->group(function () {
