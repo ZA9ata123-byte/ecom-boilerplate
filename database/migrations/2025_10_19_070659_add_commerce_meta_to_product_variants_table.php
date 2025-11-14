@@ -12,7 +12,7 @@ return new class extends Migration
         Schema::table('product_variants', function (Blueprint $table) {
             // لو ماكانش options نضيفوه (MySQL 8 يسمح default JSON)
             if (! Schema::hasColumn('product_variants', 'options')) {
-                $table->json('options')->default(DB::raw('(json_object())'));
+                $table->json('options')->default(DB::raw("'{}'::jsonb"));
             }
 
             // صور اختيارية
