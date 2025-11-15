@@ -18,40 +18,19 @@ class CartController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        [$cart, $token] = $this->resolveCart($request, createIfMissing: true);
+        [$cart, $response] = $this->resolveCart($request);
 
-        if (! $cart) {
-            return response()->json([
-                'id'    => null,
-                'items' => [],
-                'total' => 0,
-            ]);
+        $data = $this->transformCart($cart);
+
+        if ($response) {
+            return $response->setData($data);
         }
 
-        $cart->loadMissing(['items.product', 'items.variant']);
-        $payload = $this->transformCart($cart);
-
-        $response = response()->json($payload);
-
-        if ($token !== null) {
-            $response->cookie(
-                'cart_token',
-                $token,
-                60 * 24 * 30, // 30 يوم
-                '/',
-                null,
-                true,   // secure (فالبرو تكون https)
-                true,   // httpOnly
-                false,
-                'Lax'
-            );
-        }
-
-        return $response;
+        return response()->json($data);
     }
 
     /**
-     * إضافة منتج للسلة أو تحديث الكمية ديالو.
+     * إضافة منتج للسلة أو تحديث الكمية ديالو (مسجّل أو زائر).
      */
     public function store(Request $request): JsonResponse
     {
@@ -61,9 +40,9 @@ class CartController extends Controller
             'quantity'           => ['required', 'integer', 'min:1'],
         ]);
 
-        $product = Product::findOrFail($data['product_id']);
+        [$cart, $response] = $this->resolveCart($request);
 
-        [$cart, $token] = $this->resolveCart($request, createIfMissing: true);
+        $product = Product::findOrFail($data['product_id']);
 
         $variant = null;
         if (! empty($data['product_variant_id'])) {
@@ -72,6 +51,7 @@ class CartController extends Controller
                 ->firstOrFail();
         }
 
+        // نشوف واش نفس السطر (نفس المنتج ونفس الفاريانت) موجود
         $itemQuery = CartItem::where('cart_id', $cart->id)
             ->where('product_id', $product->id);
 
@@ -96,28 +76,19 @@ class CartController extends Controller
         }
 
         $cart->load(['items.product', 'items.variant']);
-        $payload = $this->transformCart($cart);
 
-        $response = response()->json([
+        $cartData = $this->transformCart($cart);
+
+        $payload = [
             'message' => 'Item added to cart',
-            'cart'    => $payload,
-        ]);
+            'cart'    => $cartData,
+        ];
 
-        if ($token !== null) {
-            $response->cookie(
-                'cart_token',
-                $token,
-                60 * 24 * 30,
-                '/',
-                null,
-                true,
-                true,
-                false,
-                'Lax'
-            );
+        if ($response) {
+            return $response->setData($payload);
         }
 
-        return $response;
+        return response()->json($payload);
     }
 
     /**
@@ -125,9 +96,9 @@ class CartController extends Controller
      */
     public function update(Request $request, CartItem $item): JsonResponse
     {
-        [$cart, $token] = $this->resolveCart($request, createIfMissing: false);
+        $user = $request->user('sanctum') ?? $request->user();
 
-        if (! $cart || $item->cart_id !== $cart->id) {
+        if ($user && $item->cart->user_id !== $user->id) {
             return response()->json([
                 'message' => 'Forbidden.',
             ], 403);
@@ -140,29 +111,14 @@ class CartController extends Controller
         $item->quantity = $data['quantity'];
         $item->save();
 
-        $cart->load(['items.product', 'items.variant']);
-        $payload = $this->transformCart($cart);
+        $cart = $item->cart->load(['items.product', 'items.variant']);
 
-        $response = response()->json([
+        $cartData = $this->transformCart($cart);
+
+        return response()->json([
             'message' => 'Cart updated',
-            'cart'    => $payload,
+            'cart'    => $cartData,
         ]);
-
-        if ($token !== null) {
-            $response->cookie(
-                'cart_token',
-                $token,
-                60 * 24 * 30,
-                '/',
-                null,
-                true,
-                true,
-                false,
-                'Lax'
-            );
-        }
-
-        return $response;
     }
 
     /**
@@ -170,82 +126,96 @@ class CartController extends Controller
      */
     public function destroy(Request $request, CartItem $item): JsonResponse
     {
-        [$cart, $token] = $this->resolveCart($request, createIfMissing: false);
+        $user = $request->user('sanctum') ?? $request->user();
 
-        if (! $cart || $item->cart_id !== $cart->id) {
+        if ($user && $item->cart->user_id !== $user->id) {
             return response()->json([
                 'message' => 'Forbidden.',
             ], 403);
         }
 
         $cart = $item->cart;
+
         $item->delete();
 
         $cart->load(['items.product', 'items.variant']);
-        $payload = $this->transformCart($cart);
 
-        $response = response()->json([
-            'message' => 'Item removed',
-            'cart'    => $payload,
+        $cartData = $this->transformCart($cart);
+
+        return response()->json([
+            'message' => 'Item removed from cart',
+            'cart'    => $cartData,
         ]);
-
-        if ($token !== null) {
-            $response->cookie(
-                'cart_token',
-                $token,
-                60 * 24 * 30,
-                '/',
-                null,
-                true,
-                true,
-                false,
-                'Lax'
-            );
-        }
-
-        return $response;
     }
 
     /**
-     * تحديد السلة الحالية (User أو Guest).
+     * helper: يرد لينا الكارت (user أو guest) + response فيه الكوكي إلا احتجناه.
      *
-     * @return array{0: ?Cart, 1: ?string}
+     * @return array{0: Cart, 1: ?JsonResponse}
      */
-    private function resolveCart(Request $request, bool $createIfMissing = false): array
+    private function resolveCart(Request $request): array
     {
         $user = $request->user('sanctum') ?? $request->user();
+        $response = null;
 
-        // مسجّل ✅
+        // مسجّل
         if ($user) {
-            $cart = Cart::firstOrCreate(['user_id' => $user->id]);
+            $cart = Cart::firstOrCreate(
+                ['user_id' => $user->id],
+                ['cart_token' => null],
+            );
 
-            return [$cart, null];
+            return [$cart, $response];
         }
 
-        // زائر ✅
+        // زائر (guest)
         $token = $request->cookie('cart_token');
 
-        if (! $token) {
-            if (! $createIfMissing) {
-                return [null, null];
-            }
-
-            $token = (string) Str::uuid();
-
-            $cart = Cart::create([
-                'cart_token' => $token,
-            ]);
-
-            return [$cart, $token];
+        if ($token) {
+            $cart = Cart::whereNull('user_id')
+                ->where('cart_token', $token)
+                ->first();
         }
 
-        $cart = Cart::firstOrCreate(['cart_token' => $token]);
+        if (empty($cart)) {
+            $newToken = (string) Str::uuid();
 
-        return [$cart, $token];
+            $cart = Cart::create([
+                'user_id'    => null,
+                'cart_token' => $newToken,
+            ]);
+
+            $response = response()->json();
+            $this->attachCartCookie($response, $newToken);
+        }
+
+        return [$cart, $response];
     }
 
     /**
-     * تحويل الكارت لفورما موحدة.
+     * يركب الكوكي ديال cart_token فـ response.
+     */
+    private function attachCartCookie(JsonResponse $response, string $token): void
+    {
+        if ($token === '') {
+            return;
+        }
+
+        $response->cookie(
+            'cart_token',
+            $token,
+            60 * 24 * 30, // 30 يوم (بالدقايق)
+            '/',
+            null,
+            false, // https only -> نخليوها false دابا، نفعلوها ملي ندوزو https
+            false, // httpOnly
+            false,
+            'Lax',
+        );
+    }
+
+    /**
+     * توحيد فورما السلة فالرد.
      */
     private function transformCart(Cart $cart): array
     {

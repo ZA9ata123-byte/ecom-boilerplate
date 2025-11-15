@@ -33,23 +33,26 @@ class CartItem extends Model
     }
 
     /**
-     * ثمن الوحدة: يا إما من الـ variant، وإلا من المنتج الأصلي.
+     * ثمن الوحدة: إذا عندنا Variant بثمن → ناخدوه،
+     * وإلا كنرجعو لثمن المنتج الأصلي.
      */
     public function unitPrice(): float
     {
-        if ($this->variant && $this->variant->price !== null) {
-            return (float) $this->variant->price;
+        $variant = $this->variant;
+        if ($variant && ! is_null($variant->price)) {
+            return (float) $variant->price;
         }
 
-        if ($this->product && $this->product->price !== null) {
-            return (float) $this->product->price;
+        $product = $this->product;
+        if ($product && ! is_null($product->price)) {
+            return (float) $product->price;
         }
 
         return 0.0;
     }
 
     /**
-     * المجموع ديال السطر = الثمن × الكمية.
+     * مجموع السطر: unit_price × quantity
      */
     public function lineTotal(): float
     {
