@@ -6,20 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class CartController extends Controller
 {
     /**
-     * عرض السلة الحالية للمستخدم.
+     * عرض السلة الحالية (مسجّل أو زائر).
      */
     public function index(Request $request): JsonResponse
     {
-        $user = $request->user('sanctum') ?? $request->user();
+        [$cart, $token] = $this->resolveCart($request, createIfMissing: true);
 
-        if (! $user) {
-            // حاليا: سلة فارغة لغير المسجّل (غادي نطوروها لاحقا للضيف)
+        if (! $cart) {
             return response()->json([
                 'id'    => null,
                 'items' => [],
@@ -27,35 +28,26 @@ class CartController extends Controller
             ]);
         }
 
-        // نجيب أو ننشئ سلة للمستخدم
-        $cart = Cart::with(['items.product'])
-            ->firstOrCreate(['user_id' => $user->id]);
+        $cart->loadMissing(['items.product', 'items.variant']);
+        $payload = $this->transformCart($cart);
 
-        // نحسب التوتال من ثمن المنتج مباشرة
-        $total = $cart->items->sum(function (CartItem $item) {
-            $price = $item->product->price ?? 0;
-            return (float) $price * $item->quantity;
-        });
+        $response = response()->json($payload);
 
-        return response()->json([
-            'id'    => $cart->id,
-            'items' => $cart->items->map(function (CartItem $item) {
-                return [
-                    'id'         => $item->id,
-                    'product_id' => $item->product_id,
-                    'quantity'   => $item->quantity,
-                    'price'      => $item->product->price ?? null,
-                    'product'    => $item->product ? [
-                        'id'    => $item->product->id,
-                        'name'  => $item->product->name,
-                        'price' => $item->product->price,
-                        'sku'   => $item->product->sku,
-                        'type'  => $item->product->type,
-                    ] : null,
-                ];
-            }),
-            'total' => $total,
-        ]);
+        if ($token !== null) {
+            $response->cookie(
+                'cart_token',
+                $token,
+                60 * 24 * 30, // 30 يوم
+                '/',
+                null,
+                true,   // secure (فالبرو تكون https)
+                true,   // httpOnly
+                false,
+                'Lax'
+            );
+        }
+
+        return $response;
     }
 
     /**
@@ -63,74 +55,69 @@ class CartController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $user = $request->user('sanctum') ?? $request->user();
-
-        if (! $user) {
-            return response()->json([
-                'message' => 'Unauthenticated.',
-            ], 401);
-        }
-
         $data = $request->validate([
-            'product_id' => ['required', 'exists:products,id'],
-            'quantity'   => ['required', 'integer', 'min:1'],
+            'product_id'         => ['required', 'exists:products,id'],
+            'product_variant_id' => ['nullable', 'exists:product_variants,id'],
+            'quantity'           => ['required', 'integer', 'min:1'],
         ]);
 
         $product = Product::findOrFail($data['product_id']);
 
-        // نخلق/نجيب السلة ديال هاد المستخدم
-        $cart = Cart::firstOrCreate(
-            ['user_id' => $user->id],
-            []
-        );
+        [$cart, $token] = $this->resolveCart($request, createIfMissing: true);
 
-        // نشوف واش نفس المنتج راه كاين فالسلة
-        $item = CartItem::where('cart_id', $cart->id)
-            ->where('product_id', $product->id)
-            ->first();
+        $variant = null;
+        if (! empty($data['product_variant_id'])) {
+            $variant = ProductVariant::where('id', $data['product_variant_id'])
+                ->where('product_id', $product->id)
+                ->firstOrFail();
+        }
+
+        $itemQuery = CartItem::where('cart_id', $cart->id)
+            ->where('product_id', $product->id);
+
+        if ($variant) {
+            $itemQuery->where('product_variant_id', $variant->id);
+        } else {
+            $itemQuery->whereNull('product_variant_id');
+        }
+
+        $item = $itemQuery->first();
 
         if ($item) {
-            // نزيد الكمية
             $item->quantity += $data['quantity'];
             $item->save();
         } else {
-            // نخلق عنصر جديد فالسلة
             $item = CartItem::create([
-                'cart_id'    => $cart->id,
-                'product_id' => $product->id,
-                'quantity'   => $data['quantity'],
+                'cart_id'            => $cart->id,
+                'product_id'         => $product->id,
+                'product_variant_id' => $variant?->id,
+                'quantity'           => $data['quantity'],
             ]);
         }
 
-        $cart->load('items.product');
+        $cart->load(['items.product', 'items.variant']);
+        $payload = $this->transformCart($cart);
 
-        $total = $cart->items->sum(function (CartItem $item) {
-            $price = $item->product->price ?? 0;
-            return (float) $price * $item->quantity;
-        });
-
-        return response()->json([
+        $response = response()->json([
             'message' => 'Item added to cart',
-            'cart'    => [
-                'id'    => $cart->id,
-                'items' => $cart->items->map(function (CartItem $item) {
-                    return [
-                        'id'         => $item->id,
-                        'product_id' => $item->product_id,
-                        'quantity'   => $item->quantity,
-                        'price'      => $item->product->price ?? null,
-                        'product'    => $item->product ? [
-                            'id'    => $item->product->id,
-                            'name'  => $item->product->name,
-                            'price' => $item->product->price,
-                            'sku'   => $item->product->sku,
-                            'type'  => $item->product->type,
-                        ] : null,
-                    ];
-                }),
-                'total' => $total,
-            ],
+            'cart'    => $payload,
         ]);
+
+        if ($token !== null) {
+            $response->cookie(
+                'cart_token',
+                $token,
+                60 * 24 * 30,
+                '/',
+                null,
+                true,
+                true,
+                false,
+                'Lax'
+            );
+        }
+
+        return $response;
     }
 
     /**
@@ -138,15 +125,9 @@ class CartController extends Controller
      */
     public function update(Request $request, CartItem $item): JsonResponse
     {
-        $user = $request->user('sanctum') ?? $request->user();
+        [$cart, $token] = $this->resolveCart($request, createIfMissing: false);
 
-        if (! $user) {
-            return response()->json([
-                'message' => 'Unauthenticated.',
-            ], 401);
-        }
-
-        if ($item->cart->user_id !== $user->id) {
+        if (! $cart || $item->cart_id !== $cart->id) {
             return response()->json([
                 'message' => 'Forbidden.',
             ], 403);
@@ -159,35 +140,29 @@ class CartController extends Controller
         $item->quantity = $data['quantity'];
         $item->save();
 
-        $cart = $item->cart->load('items.product');
+        $cart->load(['items.product', 'items.variant']);
+        $payload = $this->transformCart($cart);
 
-        $total = $cart->items->sum(function (CartItem $item) {
-            $price = $item->product->price ?? 0;
-            return (float) $price * $item->quantity;
-        });
-
-        return response()->json([
+        $response = response()->json([
             'message' => 'Cart updated',
-            'cart'    => [
-                'id'    => $cart->id,
-                'items' => $cart->items->map(function (CartItem $item) {
-                    return [
-                        'id'         => $item->id,
-                        'product_id' => $item->product_id,
-                        'quantity'   => $item->quantity,
-                        'price'      => $item->product->price ?? null,
-                        'product'    => $item->product ? [
-                            'id'    => $item->product->id,
-                            'name'  => $item->product->name,
-                            'price' => $item->product->price,
-                            'sku'   => $item->product->sku,
-                            'type'  => $item->product->type,
-                        ] : null,
-                    ];
-                }),
-                'total' => $total,
-            ],
+            'cart'    => $payload,
         ]);
+
+        if ($token !== null) {
+            $response->cookie(
+                'cart_token',
+                $token,
+                60 * 24 * 30,
+                '/',
+                null,
+                true,
+                true,
+                false,
+                'Lax'
+            );
+        }
+
+        return $response;
     }
 
     /**
@@ -195,52 +170,119 @@ class CartController extends Controller
      */
     public function destroy(Request $request, CartItem $item): JsonResponse
     {
-        $user = $request->user('sanctum') ?? $request->user();
+        [$cart, $token] = $this->resolveCart($request, createIfMissing: false);
 
-        if (! $user) {
-            return response()->json([
-                'message' => 'Unauthenticated.',
-            ], 401);
-        }
-
-        if ($item->cart->user_id !== $user->id) {
+        if (! $cart || $item->cart_id !== $cart->id) {
             return response()->json([
                 'message' => 'Forbidden.',
             ], 403);
         }
 
         $cart = $item->cart;
-
         $item->delete();
 
-        $cart->load('items.product');
+        $cart->load(['items.product', 'items.variant']);
+        $payload = $this->transformCart($cart);
 
-        $total = $cart->items->sum(function (CartItem $item) {
-            $price = $item->product->price ?? 0;
-            return (float) $price * $item->quantity;
+        $response = response()->json([
+            'message' => 'Item removed',
+            'cart'    => $payload,
+        ]);
+
+        if ($token !== null) {
+            $response->cookie(
+                'cart_token',
+                $token,
+                60 * 24 * 30,
+                '/',
+                null,
+                true,
+                true,
+                false,
+                'Lax'
+            );
+        }
+
+        return $response;
+    }
+
+    /**
+     * تحديد السلة الحالية (User أو Guest).
+     *
+     * @return array{0: ?Cart, 1: ?string}
+     */
+    private function resolveCart(Request $request, bool $createIfMissing = false): array
+    {
+        $user = $request->user('sanctum') ?? $request->user();
+
+        // مسجّل ✅
+        if ($user) {
+            $cart = Cart::firstOrCreate(['user_id' => $user->id]);
+
+            return [$cart, null];
+        }
+
+        // زائر ✅
+        $token = $request->cookie('cart_token');
+
+        if (! $token) {
+            if (! $createIfMissing) {
+                return [null, null];
+            }
+
+            $token = (string) Str::uuid();
+
+            $cart = Cart::create([
+                'cart_token' => $token,
+            ]);
+
+            return [$cart, $token];
+        }
+
+        $cart = Cart::firstOrCreate(['cart_token' => $token]);
+
+        return [$cart, $token];
+    }
+
+    /**
+     * تحويل الكارت لفورما موحدة.
+     */
+    private function transformCart(Cart $cart): array
+    {
+        $cart->loadMissing(['items.product', 'items.variant']);
+
+        $items = $cart->items->map(function (CartItem $item) {
+            $unitPrice = $item->unitPrice();
+
+            return [
+                'id'                 => $item->id,
+                'product_id'         => $item->product_id,
+                'product_variant_id' => $item->product_variant_id,
+                'quantity'           => $item->quantity,
+                'unit_price'         => $unitPrice,
+                'line_total'         => $item->lineTotal(),
+                'product'            => $item->product ? [
+                    'id'    => $item->product->id,
+                    'name'  => $item->product->name,
+                    'price' => $item->product->price,
+                    'sku'   => $item->product->sku,
+                    'type'  => $item->product->type,
+                ] : null,
+                'variant'            => $item->variant ? [
+                    'id'         => $item->variant->id,
+                    'sku'        => $item->variant->sku,
+                    'name'       => $item->variant->name,
+                    'options'    => $item->variant->options,
+                    'price'      => $item->variant->price,
+                    'is_default' => $item->variant->is_default,
+                ] : null,
+            ];
         });
 
-        return response()->json([
-            'message' => 'Item removed from cart',
-            'cart'    => [
-                'id'    => $cart->id,
-                'items' => $cart->items->map(function (CartItem $item) {
-                    return [
-                        'id'         => $item->id,
-                        'product_id' => $item->product_id,
-                        'quantity'   => $item->quantity,
-                        'price'      => $item->product->price ?? null,
-                        'product'    => $item->product ? [
-                            'id'    => $item->product->id,
-                            'name'  => $item->product->name,
-                            'price' => $item->product->price,
-                            'sku'   => $item->product->sku,
-                            'type'  => $item->product->type,
-                        ] : null,
-                    ];
-                }),
-                'total' => $total,
-            ],
-        ]);
+        return [
+            'id'    => $cart->id,
+            'items' => $items,
+            'total' => $items->sum(fn ($i) => $i['line_total']),
+        ];
     }
 }
